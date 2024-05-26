@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSS3 Circular Blur Demo</title>
+    <style>
+  /* 滑块容器的样式 */  
+.slider-container {  
+  width: 300px;  
+  margin: 20px;  
+  position: relative;  
+}  
+  
+/* 滑块的样式 */  
+.slider {  
+  -webkit-appearance: none; /* 移除默认的浏览器样式 */  
+  width: 100%; /* 宽度设置为容器宽度 */  
+  height: 10px; /* 高度 */  
+  background: #d3d3d3; /* 背景色 */  
+  outline: none; /* 移除outline */  
+  opacity: 0.7; /* 透明度 */  
+  -webkit-transition: .2s; /* 过渡效果 */  
+  transition: opacity .2s;  
+  margin: 0;  
+  padding: 0;  
+}  
+  
+/* 滑块轨道的样式 */  
+.slider::-webkit-slider-runnable-track {  
+  width: 100%;  
+  height: 8px;  
+  cursor: pointer;  
+  animate: 0.2s;  
+  background: #3071a9;  
+  border-radius: 1.3px;  
+  box-shadow: 1px 1px 1px #000000, 0px 0px 1px #0d0d0d;  
+  border: 0.2px solid #010101;  
+}  
+  
+/* 滑块拇指的样式 */  
+.slider::-webkit-slider-thumb {  
+  box-shadow: 1px 1px 1px #000000, 0px 0px 1px #0d0d0d;  
+  border: 1px solid #000000;  
+  height: 16px;  
+  width: 16px;  
+  border-radius: 50%;  
+  background: #ffffff;  
+  cursor: pointer;  
+  -webkit-appearance: none;  
+  margin-top: -4px; /* 垂直居中 */  
+}  
+  
+/* 滑块拇指按下时的样式 */  
+.slider:active::-webkit-slider-thumb {  
+  background: #f44336; /* 按下时的颜色 */  
+}  
+  
+/* 滑块值的显示样式 */  
+.slider-value {  
+  position: absolute;  
+  top: -20px; /* 垂直位置 */  
+  left: 50%; /* 水平居中 */  
+  transform: translateX(-50%);  
+  font-size: 14px;  
+  line-height: 1;  
+}  
+  
+/* 可以通过JavaScript动态更新滑块值 */
+    </style>
+</head>
+<body>
+  <div class="slider-container">  
+		<input type="range" min="0" max="100" value="50" class="slider">  
+		<p class="slider-value">50</p>  
+	</div>
+</body>
+</html>
