@@ -74,6 +74,8 @@ const VideoPlayer = () => {
 
 	const [zoomDatas, setZoomDatas] = useState([])
 
+	const [downUrl, setDownUrl] = useState('')
+
 	const initLoadFFmpeg = async () => {
 
 		const baseURL = "https://unpkg.com/@ffmpeg/core-mt@0.12.6/dist/esm";
@@ -147,19 +149,19 @@ const VideoPlayer = () => {
 				})
 			}
 			if (timeRef.current) clearTimeout(timeRef.current)
-				timeRef.current = setTimeout(() => {
-						const newZoomDatas = [...zoomDatas]
-						newZoomDatas[attentionEyesInfo.selectIndex] = {
-							...newZoomDatas[attentionEyesInfo.selectIndex],
-							x: attentionEyesInfo.left,
-							y: attentionEyesInfo.top,
-							vx: ffmpegRef.current.scaleInfo.scaleX * attentionEyesInfo.left,
-							vy: ffmpegRef.current.scaleInfo.scaleY * attentionEyesInfo.top,
-							vscale: attentionEyesInfo.scale,
-						}
-						setZoomDatas([...newZoomDatas])
-						console.log('newZoomDatas---', newZoomDatas);
-				}, 500);
+			timeRef.current = setTimeout(() => {
+				const newZoomDatas = [...zoomDatas]
+				newZoomDatas[attentionEyesInfo.selectIndex] = {
+					...newZoomDatas[attentionEyesInfo.selectIndex],
+					x: attentionEyesInfo.left,
+					y: attentionEyesInfo.top,
+					vx: ffmpegRef.current.scaleInfo.scaleX * attentionEyesInfo.left,
+					vy: ffmpegRef.current.scaleInfo.scaleY * attentionEyesInfo.top,
+					vscale: attentionEyesInfo.scale,
+				}
+				setZoomDatas([...newZoomDatas])
+				console.log('newZoomDatas---', newZoomDatas);
+			}, 500);
 		}
 		if (plyrVideoRef.current) {
 			plyrVideoRef.current.addEventListener('click', handleClick)
@@ -172,7 +174,7 @@ const VideoPlayer = () => {
 	}, [attentionEyesInfo])
 
 	useEffect(() => {
-		
+
 		const handleDocumentClick = (e) => {
 			console.log(e)
 			if (!e.target.parentNode.className.includes('plyr--video')
@@ -741,6 +743,7 @@ const VideoPlayer = () => {
 			new Blob([video3.buffer], { type: 'video/mp4' })
 		)
 		videoRef.current.src = video3Url
+		setDownUrl(video3Url)
 		console.log(frames, video3Url, ffmpegRef.current, videoRef.current.duration, JSON.stringify(runVideoInfo))
 		setLoadInfo({ isLoading: false, message: 'Processing' })
 	}
@@ -752,6 +755,33 @@ const VideoPlayer = () => {
 				scale: e.target.value / 100
 			}
 		})
+	}
+
+	const onDownLoad = async () => {
+		if (!downUrl) return;
+		// -i input.mkv -c copy output.mp4
+		const { ffmpeg } = ffmpegRef.current
+		await ffmpeg.writeFile(`avcraft_0`, await fetchFile(downUrl))
+		const command2 = `-i avcraft_0 -c copy avcraft.mp4`
+		await ffmpeg.exec([...(command2.split(' '))].filter(v => v !== ''))
+		const video3 = await ffmpeg.readFile(`avcraft.mp4`)
+		const video3Url = URL.createObjectURL(
+			new Blob([video3.buffer], { type: 'video/mp4' })
+		)
+		// 创建一个隐藏的<a>元素  
+		const a = document.createElement('a');
+		a.href = video3Url;
+		a.download = 'avcraft.mp4'; // 设置下载的文件名  
+
+		// 模拟点击<a>元素来触发下载  
+		document.body.appendChild(a); // 这一步是必要的，因为某些浏览器（如Firefox）需要元素在DOM中才能触发下载  
+		a.click();
+
+		// 清理URL对象  
+		URL.revokeObjectURL(url); // 释放内存  
+
+		// 从DOM中移除<a>元素（可选）  
+		document.body.removeChild(a);
 	}
 	return <>
 		<GlobalLoading {...loadInfo} ></GlobalLoading>
@@ -789,6 +819,13 @@ const VideoPlayer = () => {
 						<button className="button default" onClick={onSaveFrame} disabled={!playInfo.status || !playInfo.update}>
 							保存设置
 						</button>
+						{
+						downUrl	? <button className="button default" onClick={onDownLoad}>
+									保存视频
+								</button>
+								: null
+						}
+
 					</div>
 				</div>
 				<div className="time-line" ref={timeLineRef} style={{ pointerEvents: !playInfo.status ? 'none' : 'auto' }}>
