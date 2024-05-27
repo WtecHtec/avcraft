@@ -3,7 +3,7 @@ import './index.css'
 import { FFmpeg } from '@ffmpeg/ffmpeg'
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
 import GlobalLoading from '../GlobalLoading';
-import { formatSecondsToHMS } from '../uitl';
+import { convertToSeconds, formatSecondsToHMS } from '../uitl';
 
 function generateUUID() {
 	return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
@@ -42,6 +42,7 @@ const VideoPlayer = () => {
 		cacheLeft: 0,
 		cacheWidth: 0,
 		targetDom: null,
+		duration: 0,
 	})
 	const [progressInfo, setProgressInfo] = useState({
 		current: 0,
@@ -62,6 +63,8 @@ const VideoPlayer = () => {
 		playing: false,
 		status: false,
 		update: false,
+		duration: 0,
+		current: 0,
 	})
 
 	const [attentionEyesInfo, setAttentionEyesInfo] = useState({
@@ -136,10 +139,17 @@ const VideoPlayer = () => {
 	useEffect(() => {
 
 		const handleClick = (e) => {
-			console.log('e----', e)
+			console.log('handleClick e----', e)
 			if (attentionEyesInfo.selectIndex < 0) return
 			// update scale
+			let update = {}
 			if (!e.target.className.includes('zoom-setting')) {
+				update = {
+					x: e.offsetX,
+					y:  e.offsetY,
+					vx: ffmpegRef.current.scaleInfo.scaleX * e.offsetX,
+					vy: ffmpegRef.current.scaleInfo.scaleY *  e.offsetY,
+				}
 				setAttentionEyesInfo((per) => {
 					return {
 						...per,
@@ -148,20 +158,14 @@ const VideoPlayer = () => {
 					}
 				})
 			}
-			if (timeRef.current) clearTimeout(timeRef.current)
-			timeRef.current = setTimeout(() => {
-				const newZoomDatas = [...zoomDatas]
-				newZoomDatas[attentionEyesInfo.selectIndex] = {
-					...newZoomDatas[attentionEyesInfo.selectIndex],
-					x: attentionEyesInfo.left,
-					y: attentionEyesInfo.top,
-					vx: ffmpegRef.current.scaleInfo.scaleX * attentionEyesInfo.left,
-					vy: ffmpegRef.current.scaleInfo.scaleY * attentionEyesInfo.top,
-					vscale: attentionEyesInfo.scale,
-				}
-				setZoomDatas([...newZoomDatas])
-				console.log('newZoomDatas---', newZoomDatas);
-			}, 500);
+			const newZoomDatas = [...zoomDatas]
+			newZoomDatas[attentionEyesInfo.selectIndex] = {
+				...newZoomDatas[attentionEyesInfo.selectIndex],
+				...update,
+				vscale: attentionEyesInfo.scale,
+			}
+			setZoomDatas(() => [...newZoomDatas])
+			console.log('newZoomDatas---', newZoomDatas);
 		}
 		if (plyrVideoRef.current) {
 			plyrVideoRef.current.addEventListener('click', handleClick)
@@ -173,6 +177,7 @@ const VideoPlayer = () => {
 		}
 	}, [attentionEyesInfo])
 
+	// document 
 	useEffect(() => {
 
 		const handleDocumentClick = (e) => {
@@ -194,11 +199,28 @@ const VideoPlayer = () => {
 		}
 	}, [])
 
+	const getMinSeconds = (moveValue: number) => {
+		const diff = Math.round( moveValue / mouseEvent.current.mintimeline) 
+		console.log('diff----', diff)
+		moveValue = Math.round(mouseEvent.current.mintimeline * diff ) 
+		moveValue = moveValue < 0 ? 0 : (moveValue > 100 ? 100 : moveValue)
+		return Math.floor(moveValue)
+	}
+	// time line 
 	useEffect(() => {
 		const onMouseMove = (e: MouseEvent) => {
 			const mod = timeLineRef.current?.clientWidth / 0.9 * 0.1 * 0.5
-			let moveValue = ((e.clientX - mod) / (timeLineRef.current?.clientWidth)) * 100
-			moveValue = moveValue < 0 ? 0 : (moveValue > 100 ? 100 : moveValue)
+			console.log( (e.clientX - mod), mouseEvent.current.mintimeline)
+			let moveValue = Math.floor((e.clientX - mod) / timeLineRef.current?.clientWidth * 100) 
+			// let moveValue = ((e.clientX - mod) / mouseEvent.current.mintimeline)
+			// moveValue = Math.round(moveValue)
+			// moveValue = moveValue < 0 ? 0 : (moveValue > 100 ? 100 : moveValue)
+			// const diff = Math.floor( moveValue / mouseEvent.current.mintimeline) 
+			// moveValue = Math.floor(mouseEvent.current.mintimeline ) * diff 
+			console.log('moveValue---', moveValue, );
+			console.log('一秒 width %:', mouseEvent.current.mintimeline)
+			moveValue = getMinSeconds(moveValue)
+			console.log('moveValue000', moveValue, timeLineRef.current?.clientWidth, mouseEvent.current.mintimeline)
 			setProgressInfo(per => {
 				return {
 					...per,
@@ -212,7 +234,7 @@ const VideoPlayer = () => {
 			if (target.className.includes('zoom-item-left') || target.className.includes('zoom-item-right')) return;
 
 			setProgressInfo(per => {
-				videoRef.current.currentTime = videoRef.current.duration * per.move / 100
+				videoRef.current.currentTime = mouseEvent.current.duration * per.move / 100
 				// console.log('videoRef.current.currentTime---', videoRef.current.currentTime)
 				return {
 					...per,
@@ -233,12 +255,15 @@ const VideoPlayer = () => {
 		}
 	}, [])
 
+	// zoom line
 	useEffect(() => {
 		const onMouseMove = (e: MouseEvent) => {
 			const { target } = e;
 			const mod = zoomRef.current?.clientWidth / 0.9 * 0.1 * 0.5
 			let moveValue = ((e.clientX - mod) / (zoomRef.current?.clientWidth)) * 100
+			console.log('moveValue---', moveValue);
 			moveValue = moveValue < 0 ? 0 : (moveValue > 100 ? 100 : moveValue)
+			moveValue = getMinSeconds(moveValue)
 			const { isDrag, dragIndex, minWidth, direction, cacheLeft, cacheWidth, time, status } = mouseEvent.current
 			if (status === 1 && time) {
 				// clearTimeout(time)
@@ -264,6 +289,7 @@ const VideoPlayer = () => {
 							break
 						}
 					}
+					console.log('right 移动', width)
 					setZoomDatas(per => {
 						per[dragIndex].width = width
 						return [...per]
@@ -304,13 +330,19 @@ const VideoPlayer = () => {
 				showZoomMask(false);
 			}
 			// range zoomdatas
+			const postion = moveValue + zoomMaskInfo.width
+			// console.log('----', postion, moveValue, zoomMaskInfo.width)
 			for (let i = 0; i < zoomDatas.length; i++) {
-				const postion = moveValue + zoomMaskInfo.width
 				const { left, width } = zoomDatas[i]
-				if (postion >= left && postion <= left + width) {
+				if (postion > left && postion <= left + width) {
 					showZoomMask(false)
 					break
 				}
+				if (moveValue > left && moveValue < left + width) {
+					showZoomMask(false)
+					break
+				}
+				
 			}
 
 			setZoomMaskInfo(per => {
@@ -323,7 +355,7 @@ const VideoPlayer = () => {
 		const onMouseDown = (e) => {
 			const { target } = e
 			if (target.className.includes('zoom-mark')) {
-				if (!getMaskStatus() || videoRef.current.duration < 2) return;
+				if (!getMaskStatus() || mouseEvent.current.duration < 2) return;
 				setPlayInfo((per) => {
 					return {
 						...per,
@@ -412,14 +444,22 @@ const VideoPlayer = () => {
 
 	const initMouseEvent = () => {
 		const width = timeLineRef.current?.clientWidth
-		const duration = videoRef.current.duration
-		const scale = width / duration
-		console.log('mouseEvent.current.minWidth---- 0', mouseEvent.current.minWidth)
-		mouseEvent.current.minWidth = (scale * minsecondes) / width * 100
-		console.log('mouseEvent.current.minWidth---- 1', scale, duration, mouseEvent.current.minWidth)
+		const duration = (videoRef.current.duration)
+		const scale =  width / duration
+		console.log('mouseEvent.current.minWidth---- 0', scale, mouseEvent.current.minWidth)
+		mouseEvent.current.mintimeline = ((scale * 1) / width * 100) 
+		mouseEvent.current.minWidth =  Math.round(mouseEvent.current.mintimeline *  minsecondes) 
+		mouseEvent.current.duration = duration
+		console.log('mouseEvent.current.minWidth---- 1', mouseEvent.current.mintimeline, scale, duration, mouseEvent.current.minWidth)
 		if (zoomDatas.length) {
 			console.log('zoomDatas-----', zoomDatas, scale)
 		}
+		setPlayInfo((per) => {
+			return {
+				...per,
+				duration,
+			}
+		})
 		setZoomMaskInfo(per => {
 			return {
 				...per,
@@ -431,15 +471,22 @@ const VideoPlayer = () => {
 		const updateScrubber = () => {
 			requestAnimationFrame(() => {
 				const time = videoRef.current.currentTime
-				const duration = videoRef.current.duration
+				const duration = mouseEvent.current.duration
 				let position = (time / duration) * 100
 				if (time === 0) {
 					position = 0
 				}
+				// console.log('position---', time, position);
 				setProgressInfo(per => {
 					return {
 						...per,
 						current: position
+					}
+				})
+				setPlayInfo((per) => {
+					return {
+						...per,
+						current: time,
 					}
 				})
 			})
@@ -456,7 +503,9 @@ const VideoPlayer = () => {
 			console.log('handleLoadedmetadata-----',)
 			initMouseEvent()
 		}
-		const handleLoadstart = () => { }
+		const handleLoadstart = () => {
+
+		 }
 		if (videoRef.current) {
 			videoRef.current.addEventListener('timeupdate', updateScrubber)
 			videoRef.current.addEventListener('ended', handelEnded)
@@ -496,8 +545,11 @@ const VideoPlayer = () => {
 		const videoUrl1 = URL.createObjectURL(
 			new Blob([video1.buffer], { type: 'video/mp4' })
 		)
-		console.log('videoUrl1 0--', videoUrl1)
-		const com2 = `-i ${orginVideoName} -vf zoompan=d=1:fps=${runVideoInfo.fps}:s=hd1080 -c:v libx264 -crf 23 ${nwOrginVideoName}.mp4`
+		const d = Math.floor(convertToSeconds(runVideoInfo.duration)) 
+		console.log('videoUrl1 0--', videoUrl1, runVideoInfo, d)
+		// const com2 = `-i ${orginVideoName} -vf zoompan=d=1:fps=${runVideoInfo.fps}:s=hd1080 -d ${d} -c:v libx264 -crf 23 ${nwOrginVideoName}.mp4`
+		//  -ss ${ss} -t ${t}  -c:v libx264 -crf 23 -c copy ${out}.mp4 
+		const com2 = `-i ${orginVideoName} -ss 00:00:00 -t ${formatSecondsToHMS(d)} -vf zoompan=d=1:fps=${runVideoInfo.fps}:s=hd1080 -d ${d} -c:v libx264 -crf 23 ${nwOrginVideoName}.mp4`
 		await ffmpeg.exec(com2.split(' ').filter(v => v !== ''))
 		const video0 = await ffmpeg.readFile(`${nwOrginVideoName}.mp4`)
 		const videoUrl = URL.createObjectURL(
@@ -513,7 +565,7 @@ const VideoPlayer = () => {
 		const url = await initVideo(ffmpegRef.current.ffmpeg, file)
 		videoRef.current.src = url
 		const blobUrl = URL.createObjectURL(file)
-		ffmpegRef.current.videoInfo = { blobUrl, ...runVideoInfo }
+		ffmpegRef.current.videoInfo = { blobUrl, initUrl: url, ...runVideoInfo }
 		ffmpegRef.current.scaleInfo = {
 			scaleX: runVideoInfo.width / (videoRef.current?.clientWidth),
 			scaleY: runVideoInfo.height / (videoRef.current?.clientHeight),
@@ -556,7 +608,8 @@ const VideoPlayer = () => {
 	const getFrames = () => {
 		const newDatas = [...zoomDatas]
 		newDatas.sort((a, b) => a.left - b.left)
-		const duration = videoRef.current.duration
+		const duration = mouseEvent.current.duration
+		console.log('videoRef.current.duration--', videoRef.current.duration)
 		const frames = []
 		// const scaleX = ffmpegRef.current.videoInfo.width / videoRef.current?.clientWidth
 		// const scaleY = ffmpegRef.current.videoInfo.height / videoRef.current?.clientHeight
@@ -609,11 +662,14 @@ const VideoPlayer = () => {
 					fps,
 				})
 			} else {
+				// 最后一帧
+				const d =Math.round((duration - (left + width) / 100 * duration))
+				if (d <= 0) continue;
 				frames.push({
 					ss: formatSecondsToHMS((left + width) / 100 * duration),
 					t: formatSecondsToHMS(duration - (left + width) / 100 * duration),
 					out: `${getId()}`,
-					d: Math.round(duration - (left + width) / 100 * duration),
+					d,
 					fps,
 				})
 			}
@@ -624,18 +680,31 @@ const VideoPlayer = () => {
 		console.log(zoomDatas, ffmpegRef.current.videoInfo)
 		// -ss 00:00:10 -t 00:00:30 -vcodec copy -acodec copy output.mp4
 		// { ss:, t:, out:}
-		setLoadInfo({ isLoading: true, message: 'Processing' })
-		const frames = getFrames()
-		console.log('frames===', frames)
 		const { ffmpeg, videoInfo } = ffmpegRef.current
+		const frames = getFrames()
+		if (frames.length === 0) {
+			videoRef.current.src = videoInfo.initUrl
+			return
+		}
+		setLoadInfo({ isLoading: true, message: 'Processing' })
+		console.log('onSaveFrame-----', videoInfo.blobUrl)
+		if (frames.length) {
+			console.log('frames===', frames)
+			// return
+		}
 		ffmpeg.writeFile(orginVideoName, await fetchFile(videoInfo.blobUrl))
 		let coms = ``
-		frames.forEach(({ ss, t, out }) => {
-			coms = `${coms} -ss ${ss} -t ${t}  -c:v libx264 -crf 23 -c copy ${out}.mp4 `
-		})
-		await ffmpeg.exec(['-i', orginVideoName, ...(coms.split(' '))].filter(v => v !== ''))
+		// frames.forEach(({ ss, t, out }) => {
+		// 	coms = `${coms} -ss ${ss} -t ${t} -i ${orginVideoName} -c copy ${out}.mp4 `
+		// })
+		// await ffmpeg.exec([...(coms.split(' '))].filter(v => v !== ''))
 		// console.log(['-i', orginVideoName, ...(coms.split(' '))])
 		// const command1 = `-i part1.mp4 -vf  zoompan=z=\'min(pzoom+0.05,2)\':x=0:y=0:d=1:fps=${fps},scale=${width}:${height} output3.mp4`
+		for (let i = 0; i < frames.length; i++) {
+			const { ss, t, out } = frames[i]
+			coms = `-ss ${ss} -t ${t} -i ${orginVideoName} -c copy ${out}.mp4 `
+			await ffmpeg.exec([...(coms.split(' '))].filter(v => v !== ''))
+		}
 		coms = ''
 		for (let i = 0; i < frames.length; i++) {
 			const { fps, width, height, out, d, vx, vy, status, vscale = 0.05 } = frames[i]
@@ -644,7 +713,7 @@ const VideoPlayer = () => {
 				new Blob([video.buffer], { type: 'video/mp4' })
 			)
 
-			console.log('videoUrl--- ', i, frames[i], videoUrl)
+			console.log('videoUrl--- 剪切 ', i, frames[i], videoUrl)
 			if (fps && width && height && status) {
 				const newOut = `${getId()}`
 				// if (status === '1') {
@@ -653,7 +722,7 @@ const VideoPlayer = () => {
 				// 	coms = `-i ${out}.mp4 -vf zoompan=z=\'max(1,pzoom-0.05)\':s=${width}x${height}:x=\'iw/2-(iw/zoom/2)\':y=\'ih/2-(ih/zoom/2)\':d=1:fps=${fps} ${newOut}.mp4`
 				// }
 				// const zoomExpression = 'max(1.5,pzoom+0.05),if(gte(out_time, 1),zoom,)'; 
-				const zoomExpression = `if(lt(in_time,2),pzoom+${vscale},if(gte(out_time,${d - 2}),pzoom-${vscale},pzoom))`
+				const zoomExpression = `if(lt(in_time,1),pzoom+${vscale},if(gte(out_time,${d-1}),pzoom-${vscale},pzoom))`
 				// const zoomExpression = `if(between(in_time,${d-1},${d}),max(1,pzoom-0.05),if(lte(pzoom,1.5),pzoom+0.05,pzoom))`;
 				console.log('d------- 总共多少秒', d, zoomExpression)
 				coms = `-i ${out}.mp4 -vf zoompan=z=\'${zoomExpression}\':x=\'${vx}/2-(${vx}/zoom/2)\':y=\'${vy}/2-(${vy}/zoom/2)\':d=${2}:fps=${fps}:s=hd1080 -t ${d} -codec:v libx264 -crf 23 ${newOut}.mp4`
@@ -680,7 +749,7 @@ const VideoPlayer = () => {
 			} else {
 				// await ffmpeg.writeFile(`${out}_0`, await fetchFile(videoUrl))
 				const newOut = `${getId()}`
-				coms = `-i ${out}.mp4 -vf zoompan=z='zoom':x=\'iw/2-(iw/zoom/2)\':y=\'ih/2-(ih/zoom/2)\':d=1:fps=${fps}:s=hd1080 -t ${d} -codec:v libx264 -crf 23 ${newOut}.mp4`
+				coms = `-i ${out}.mp4 -vf zoompan=z=1:x=\'iw/2-(iw/zoom/2)\':y=\'ih/2-(ih/zoom/2)\':d=1:fps=${fps}:s=hd1080 -t ${d} -codec:v libx264 -crf 23 ${newOut}.mp4`
 				await ffmpeg.exec([...(coms.split(' '))].filter(v => v !== ''))
 				const video = await ffmpeg.readFile(`${newOut}.mp4`)
 				const videoUrl = URL.createObjectURL(
@@ -688,7 +757,7 @@ const VideoPlayer = () => {
 				)
 				await ffmpeg.writeFile(`${newOut}_0`, await fetchFile(videoUrl))
 				frames[i].out = newOut
-				console.log('videoUrl scale---', videoUrl)
+				console.log('videoUrl scale---', i, videoUrl)
 			}
 		}
 		coms = ''
@@ -742,7 +811,7 @@ const VideoPlayer = () => {
 		const video3Url = URL.createObjectURL(
 			new Blob([video3.buffer], { type: 'video/mp4' })
 		)
-		videoRef.current.src = video3Url
+		// videoRef.current.src = video3Url
 		setDownUrl(video3Url)
 		console.log(frames, video3Url, ffmpegRef.current, videoRef.current.duration, JSON.stringify(runVideoInfo))
 		setLoadInfo({ isLoading: false, message: 'Processing' })
@@ -768,20 +837,21 @@ const VideoPlayer = () => {
 		const video3Url = URL.createObjectURL(
 			new Blob([video3.buffer], { type: 'video/mp4' })
 		)
+		window.open(video3Url, '_blank')
 		// 创建一个隐藏的<a>元素  
-		const a = document.createElement('a');
-		a.href = video3Url;
-		a.download = 'avcraft.mp4'; // 设置下载的文件名  
+		// const a = document.createElement('a');
+		// a.href = video3Url;
+		// a.download = 'avcraft.mp4'; // 设置下载的文件名  
 
-		// 模拟点击<a>元素来触发下载  
-		document.body.appendChild(a); // 这一步是必要的，因为某些浏览器（如Firefox）需要元素在DOM中才能触发下载  
-		a.click();
+		// // 模拟点击<a>元素来触发下载  
+		// document.body.appendChild(a); // 这一步是必要的，因为某些浏览器（如Firefox）需要元素在DOM中才能触发下载  
+		// a.click();
 
-		// 清理URL对象  
-		URL.revokeObjectURL(url); // 释放内存  
+		// // 清理URL对象  
+		// URL.revokeObjectURL(url); // 释放内存  
 
-		// 从DOM中移除<a>元素（可选）  
-		document.body.removeChild(a);
+		// // 从DOM中移除<a>元素（可选）  
+		// document.body.removeChild(a);
 	}
 	return <>
 		<GlobalLoading {...loadInfo} ></GlobalLoading>
@@ -809,6 +879,10 @@ const VideoPlayer = () => {
 						<button className="button default" onClick={onVideoPlay} disabled={!playInfo.status}>
 							{playInfo.playing ? '暂停' : '播放'}
 						</button>
+					
+					</div>
+					<div style={{color: '#666666',}}>
+					{ formatSecondsToHMS( playInfo.current || 0)} / {formatSecondsToHMS( playInfo.duration)}
 					</div>
 					<div style={{ display: 'flex', }}>
 						{
@@ -820,9 +894,14 @@ const VideoPlayer = () => {
 							保存设置
 						</button>
 						{
-						downUrl	? <button className="button default" onClick={onDownLoad}>
-									保存视频
+						downUrl	? <>
+								<button className="button default" onClick={onDownLoad}>
+								预览视频
 								</button>
+								{/* <button className="button default" onClick={() => window.location.href = downUrl}>
+									预览结果
+								</button> */}
+						</> 
 								: null
 						}
 

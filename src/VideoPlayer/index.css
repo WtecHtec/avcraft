@@ -1,6 +1,7 @@
 .videoPlayer {
 	height: 100vh;
 	position: relative;
+	overflow: hidden;
 }
 .playerWrap {
 	height: calc(100% - 300px);
@@ -178,6 +179,7 @@
 	color: #ffffff;
 	text-align: center;
 	line-height: 40px;
+	box-sizing: border-box;
 }
 
 .attention-control:hover .zoom-mark {
