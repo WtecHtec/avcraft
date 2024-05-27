@@ -143,13 +143,16 @@ const VideoPlayer = () => {
 			if (attentionEyesInfo.selectIndex < 0) return
 			// update scale
 			let update = {}
+
 			if (!e.target.className.includes('zoom-setting')) {
 				update = {
 					x: e.offsetX,
 					y:  e.offsetY,
-					vx: ffmpegRef.current.scaleInfo.scaleX * e.offsetX,
-					vy: ffmpegRef.current.scaleInfo.scaleY *  e.offsetY,
+					vx: ffmpegRef.current.scaleInfo.scaleX * e.offsetX * 2,
+					vy: ffmpegRef.current.scaleInfo.scaleY * e.offsetY * 2,
 				}
+				// ffmpegRef.current.videoInfo.width
+				// e.offsetX * 2
 				setAttentionEyesInfo((per) => {
 					return {
 						...per,
@@ -722,7 +725,7 @@ const VideoPlayer = () => {
 				// 	coms = `-i ${out}.mp4 -vf zoompan=z=\'max(1,pzoom-0.05)\':s=${width}x${height}:x=\'iw/2-(iw/zoom/2)\':y=\'ih/2-(ih/zoom/2)\':d=1:fps=${fps} ${newOut}.mp4`
 				// }
 				// const zoomExpression = 'max(1.5,pzoom+0.05),if(gte(out_time, 1),zoom,)'; 
-				const zoomExpression = `if(lt(in_time,1),pzoom+${vscale},if(gte(out_time,${d-1}),pzoom-${vscale},pzoom))`
+				const zoomExpression = `if(lt(in_time,1),pzoom+${vscale},if(gte(out_time,${d-2}),max(1,pzoom-${vscale}),pzoom))`
 				// const zoomExpression = `if(between(in_time,${d-1},${d}),max(1,pzoom-0.05),if(lte(pzoom,1.5),pzoom+0.05,pzoom))`;
 				console.log('d------- 总共多少秒', d, zoomExpression)
 				coms = `-i ${out}.mp4 -vf zoompan=z=\'${zoomExpression}\':x=\'${vx}/2-(${vx}/zoom/2)\':y=\'${vy}/2-(${vy}/zoom/2)\':d=${2}:fps=${fps}:s=hd1080 -t ${d} -codec:v libx264 -crf 23 ${newOut}.mp4`
