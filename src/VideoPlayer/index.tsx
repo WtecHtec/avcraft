@@ -116,13 +116,13 @@ const VideoPlayer = () => {
 		// toBlobURL is used to bypass CORS issue, urls with the same
 		// domain can be used directly.
 		await ffmpeg.load({
-			coreURL: await toBlobURL(`./plugin/ffmpeg-core.js`, "text/javascript"),
+			coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
 			wasmURL: await toBlobURL(
-				`./plugin/ffmpeg-core.wasm`,
+				`${baseURL}/ffmpeg-core.wasm`,
 				"application/wasm"
 			),
 			workerURL: await toBlobURL(
-				`./plugin/ffmpeg-core.worker.js`,
+				`${baseURL}/ffmpeg-core.worker.js`,
 				"text/javascript"
 			),
 		});
