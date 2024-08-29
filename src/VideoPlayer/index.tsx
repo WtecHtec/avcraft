@@ -568,11 +568,7 @@ const VideoPlayer = () => {
 		const url = await initVideo(ffmpegRef.current.ffmpeg, file)
 		videoRef.current.src = url
 		const blobUrl = URL.createObjectURL(file)
-		ffmpegRef.current.videoInfo = { blobUrl, initUrl: url, ...runVideoInfo }
-		ffmpegRef.current.scaleInfo = {
-			scaleX: runVideoInfo.width / (videoRef.current?.clientWidth),
-			scaleY: runVideoInfo.height / (videoRef.current?.clientHeight),
-		}
+		console.log('blobUrl--', blobUrl)
 		setPlayInfo({
 			playing: false,
 			status: true,
