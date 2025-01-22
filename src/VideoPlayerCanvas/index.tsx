@@ -1,9 +1,15 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useRef, useState } from 'react'
 import './index.css'
+import { formatSecondsToHMS, toBase64 } from './uitl';
+import React from 'react';
+import { Button, Drawer, Spin } from 'antd';
+import { formatZoomDatas, getEffectFramesByZooms } from './frame';
 import GlobalLoading from '../GlobalLoading';
-import { formatSecondsToHMS } from '../uitl';
+import { convertWebmToMp4, initFFmpeg } from './videoConverter';
 
+const MIN_FRAME_MOD_TIME = 0.4
+const SCALE_DEFAULT = 1.2
 function generateUUID() {
 	return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
 		// eslint-disable-next-line prefer-const
@@ -16,15 +22,22 @@ const getId = () => {
 	return generateUUID()
 }
 
-const minsecondes = 4 // 最小秒数
-const VideoPlayer = () => {
-	const videoRef = useRef<HTMLVideoElement>(null)
-	const timeLineRef = useRef<HTMLElement>(null)
-	const zoomRef = useRef<HTMLElement>(null)
-	const zoomMaskRef = useRef<HTMLElement>(null)
-	const plyrVideoRef = useRef<HTMLElement>(null)
-  const plyrCanvasRef = useRef<HTMLCanvasElement>(null)
+let timer = null;
+const minsecondes = 2 // 最小秒数
+let recorder; // 录屏
 
+let recordEvents = [];
+const VideoPlayer = (props) => {
+	const videoRef = useRef<HTMLVideoElement>(null)
+	const timeLineRef = useRef<HTMLDivElement>(null)
+	const zoomRef = useRef<HTMLDivElement>(null)
+	const zoomMaskRef = useRef<HTMLDivElement>(null)
+	const plyrVideoRef = useRef<HTMLDivElement>(null)
+	const plyrCanvasRef = useRef<HTMLCanvasElement>(null)
+	const updateCanvasRef = useRef<HTMLCanvasElement>(null)
+	const scaleUpdateDivRef = useRef<HTMLDivElement>(null)
+	const exprotCanvasRef = useRef<HTMLCanvasElement>(null)
+	const ffmpegRef = useRef<FFmpeg | null>(null)
 	const mouseEvent = useRef({
 		status: 1,
 		time: 0,
@@ -48,11 +61,6 @@ const VideoPlayer = () => {
 		width: 0,
 	})
 
-	const [loadInfo, setLoadInfo] = useState({
-		isLoading: false,
-		message: 'load ffmpeg'
-	})
-
 	const [playInfo, setPlayInfo] = useState({
 		playing: false,
 		status: false,
@@ -65,85 +73,194 @@ const VideoPlayer = () => {
 		selectIndex: -1,
 		left: 0,
 		top: 0,
-		scale: 0.05,
+		scale: 1.2,
 	})
 
+	const renderFrameInfo = useRef({
+		lastScale: 1, // 上一帧的缩放
+		event: null, // 当前事件
+		index: 0, // 当前帧
+		sx: 0, // 开始x
+		sy: 0, //  开始y
+		effectFrames: [],
+		wscale: 1, // 缩放
+		hscale: 1, // 缩放
+		tReset: false, // 是否重置
+		tIndex: 0, // 是否重置
+		tx: 0, // 移动x
+		ty: 0, // 移动y
+	})
+
+	const scaleInfoRef = useRef({
+		updatescale: 1, // 更新时画布的缩放
+		perviewScale: 1, // 预览时画布的缩放
+		exportScale: 1,
+		type: 0, // 操作类型
+	})
 
 	const [zoomDatas, setZoomDatas] = useState([])
 
 	const [downUrl, setDownUrl] = useState('')
 
-	const initLoadFFmpeg = async () => {
-		setLoadInfo({ isLoading: false, message: 'Load FFmpeg' })
+	const [playerRect, setPlayerRect] = useState({
+		width: window.innerWidth,
+	})
+
+
+	const [open, setOpen] = useState(false);
+
+	const [exporting, setExporting] = useState(false);
+
+	const [loadInfo, setLoadInfo] = useState({
+		isLoading: false,
+		message: 'load ffmpeg'
+	})
+
+	const handleScaleUpdateMouseMove = (event) => {
+		console.log('handleScaleUpdateMouseMove', event, attentionEyesInfo)
+		const rect = scaleUpdateDivRef.current.getBoundingClientRect();
+		const x = event.clientX - rect.left;
+		const y = event.clientY - rect.top;
+		// 限制可移动元素的位置，使其不超出容器
+		const movableWidth = scaleUpdateDivRef.current.offsetWidth;
+		const movableHeight = scaleUpdateDivRef.current.offsetHeight;
+		const update = {
+			left: x > movableWidth ? movableWidth : x < 0 ? 0 : x,
+			top: y > movableHeight ? movableHeight : y < 0 ? 0 : y,
+		}
+		setAttentionEyesInfo((per) => ({
+			...per,
+			...update
+		}))
+		const newZoomDatas = [...zoomDatas]
+		newZoomDatas[attentionEyesInfo.selectIndex] = {
+			...newZoomDatas[attentionEyesInfo.selectIndex],
+			scale: attentionEyesInfo.scale,
+			x: update.left,
+			y: update.top,
+		}
+		setZoomDatas(() => [...newZoomDatas])
 	}
 
+	const showDrawer = () => {
+		setOpen(true);
+	};
+
+	const onClose = () => {
+		scaleUpdateDivRef.current.removeEventListener('mousedown', handleScaleUpdateMouseMove)
+		setOpen(false);
+	};
+
+
+	/**
+	 * 初始化录制视频
+	 */
 	useEffect(() => {
-		setLoadInfo({ isLoading: true, message: 'Load FFmpeg' })
-		initLoadFFmpeg()
-	}, [])
+		const { videoUrl, videoEvents } = props.recordInfo || {}
+		if (videoUrl) {
+			console.log('videoEvents---', videoEvents)
+			videoRef.current.src = videoUrl
+			setPlayInfo({
+				playing: false,
+				status: true,
+				update: false,
+			} as any);
+			setPlayerRect({
+				...props.playerRect,
+			});
+			recordEvents = videoEvents;
+			setZoomDatas([])
+		}
+		initFFmpeg().then(ff => {
+			ffmpegRef.current = ff
+		})
 
-	useEffect(() => {
-		/**
-		 * 选择 锚点
-		 * @param e 
-		 * @returns 
-		 */
-		const handleClick = (e: any) => {
-			if (attentionEyesInfo.selectIndex < 0) return
-			// update scale
-			let update = {}
+	}, [props])
 
-			if (!e.target.className.includes('zoom-setting')) {
-				update = {
-					x: e.offsetX,
-					y:  e.offsetY,
-				}
-				setAttentionEyesInfo((per) => {
-					return {
-						...per,
-						left: e.offsetX,
-						top: e.offsetY,
-					}
-				})
-			}
-			const newZoomDatas = [...zoomDatas]
-			newZoomDatas[attentionEyesInfo.selectIndex] = {
-				...newZoomDatas[attentionEyesInfo.selectIndex],
-				...update,
-				vscale: attentionEyesInfo.scale,
-			}
-			setZoomDatas(() => [...newZoomDatas])
-		}
-		if (plyrVideoRef.current) {
-			plyrVideoRef.current.addEventListener('click', handleClick)
-		}
-		return () => {
-			if (plyrVideoRef!.current) {
-				plyrVideoRef!.current.removeEventListener('click', handleClick)
-			}
-		}
-	}, [attentionEyesInfo.scale, attentionEyesInfo.selectIndex, zoomDatas])
+	const onFileChange = async (event) => {
+		setLoadInfo({ isLoading: true, message: 'load video' })
+		videoRef.current.src = ""
+		const file = event.target.files[0]
+			const videoUrl = URL.createObjectURL(file); // 创建URL
+			videoRef.current.src = videoUrl
+			setPlayInfo({
+				playing: false,
+				status: true,
+				update: false,
+			} as any);
+			setZoomDatas([])
+			event.target.value = ''
+		setTimeout(() => {
+			setLoadInfo({ isLoading: false, message: 'load video' })
+		}, 500)
+	
+	}
 
-	// document 
-	useEffect(() => {
+	// useEffect(() => {
+	//     /**
+	//      * 选择 锚点
+	//      * @param e 
+	//      * @returns 
+	//      */
+	//     const handleClick = (e: any) => {
+	//         if (attentionEyesInfo.selectIndex < 0) return
+	//         // update scale
+	//         let update = {}
 
-		const handleDocumentClick = (e) => {
-			if (!e.target.parentNode.className.includes('plyr--video')
-				&& !e.target.className.includes('zoom-item')
-				&& !e.target.parentNode.className.includes('dropdown')) {
-				setAttentionEyesInfo((per) => {
-					return {
-						...per,
-						selectIndex: -1,
-					}
-				})
-			}
-		}
-		document.addEventListener('click', handleDocumentClick)
-		return () => {
-			document.removeEventListener('click', handleDocumentClick)
-		}
-	}, [])
+	//         if (!e.target.className.includes('zoom-setting')) {
+	//             update = {
+	//                 x: e.offsetX,
+	//                 y: e.offsetY,
+	//             }
+	//             console.log(' handleClick ---- update', update)
+	//             setAttentionEyesInfo((per) => {
+	//                 return {
+	//                     ...per,
+	//                     left: e.offsetX,
+	//                     top: e.offsetY,
+	//                 }
+	//             })
+	//         }
+	//         const newZoomDatas = [...zoomDatas]
+	//         newZoomDatas[attentionEyesInfo.selectIndex] = {
+	//             ...newZoomDatas[attentionEyesInfo.selectIndex],
+	//             ...update,
+	//             vscale: attentionEyesInfo.scale,
+	//         }
+	//         console.log('newZoomDatas', newZoomDatas)
+	//         setZoomDatas(() => [...newZoomDatas])
+	//     }
+	//     if (plyrVideoRef.current) {
+	//         plyrVideoRef.current.addEventListener('click', handleClick)
+	//     }
+	//     return () => {
+	//         if (plyrVideoRef!.current) {
+	//             plyrVideoRef!.current.removeEventListener('click', handleClick)
+	//         }
+	//     }
+	// }, [attentionEyesInfo.scale, attentionEyesInfo.selectIndex, zoomDatas])
+
+	/**
+	 * 点击其他地方 隐藏 锚点
+	 *  */
+	// useEffect(() => {
+	//     const handleDocumentClick = (e) => {
+	//         if (!e.target.parentNode.className.includes('plyr--video')
+	//             && !e.target.className.includes('zoom-item')
+	//             && !e.target.parentNode.className.includes('dropdown')) {
+	//             setAttentionEyesInfo((per) => {
+	//                 return {
+	//                     ...per,
+	//                     selectIndex: -1,
+	//                 }
+	//             })
+	//         }
+	//     }
+	//     document.addEventListener('click', handleDocumentClick)
+	//     return () => {
+	//         document.removeEventListener('click', handleDocumentClick)
+	//     }
+	// }, [])
 
 	/**
 	 * 
@@ -151,16 +268,25 @@ const VideoPlayer = () => {
 	 * @returns 
 	 */
 	const getMinSeconds = (moveValue: number) => {
-		const diff = Math.round( moveValue / mouseEvent.current.mintimeline) 
-		moveValue = Math.round(mouseEvent.current.mintimeline * diff ) 
+		// const diff = Math.round(moveValue / mouseEvent.current.mintimeline)
+		// moveValue = Math.round(mouseEvent.current.mintimeline * diff)
+		const diff = (moveValue / mouseEvent.current.mintimeline)
+		moveValue = (mouseEvent.current.mintimeline * diff)
 		moveValue = moveValue < 0 ? 0 : (moveValue > 100 ? 100 : moveValue)
 		return Math.floor(moveValue)
 	}
 	// time line 
 	useEffect(() => {
 		const onMouseMove = (e: MouseEvent) => {
+			videoRef.current?.pause()
+			setPlayInfo(per => {
+				return {
+					...per,
+					playing: false,
+				}
+			})
 			const mod = timeLineRef.current?.clientWidth / 0.9 * 0.1 * 0.5
-			let moveValue = Math.floor((e.clientX - mod) / timeLineRef.current?.clientWidth * 100) 
+			let moveValue = Math.floor((e.clientX - mod) / timeLineRef.current?.clientWidth * 100)
 			moveValue = getMinSeconds(moveValue)
 			setProgressInfo(per => {
 				videoRef.current.currentTime = mouseEvent.current.duration * moveValue / 100
@@ -195,7 +321,20 @@ const VideoPlayer = () => {
 		}
 	}, [])
 
-	// zoom line
+	useEffect(() => {
+		if (attentionEyesInfo && attentionEyesInfo.selectIndex !== -1 && scaleUpdateDivRef.current) {
+			scaleUpdateDivRef.current.addEventListener('mousedown', handleScaleUpdateMouseMove)
+		}
+		return () => {
+			if (scaleUpdateDivRef.current) {
+				scaleUpdateDivRef.current.removeEventListener('mousedown', handleScaleUpdateMouseMove)
+			}
+		}
+	}, [attentionEyesInfo])
+
+	/**
+	 * 锚点 移动事件处理
+	 */
 	useEffect(() => {
 		const onMouseMove = (e: MouseEvent) => {
 			const { target } = e;
@@ -305,11 +444,9 @@ const VideoPlayer = () => {
 							id: getId(),
 							left: zoomMaskInfo.current,
 							width: mouseEvent.current.minWidth,
-							x: videoRef.current?.clientWidth / 2,
-							y: videoRef.current?.clientHeight / 2,
-							vx: 0,
-							vy: 0,
-							vscale: 0.05,
+							x: 400 / 2,
+							y: 200 / 2,
+							scale: 1.2,
 						}
 					]
 				})
@@ -325,7 +462,7 @@ const VideoPlayer = () => {
 					mouseEvent.current.cacheLeft = zoomDatas[target.dataset['index']].left
 					mouseEvent.current.cacheWidth = zoomDatas[target.dataset['index']].width
 					mouseEvent.current.status = 0
-				}, 0);
+				}, 0) as any;
 			} else if (target.className.includes('zoom-item-left')) {
 				// drag left
 				showZoomMask(false)
@@ -338,19 +475,34 @@ const VideoPlayer = () => {
 					mouseEvent.current.cacheWidth = zoomDatas[target.dataset['index']].width
 					mouseEvent.current.targetDom = target
 					mouseEvent.current.status = 0
-				}, 0);
+				}, 0) as any;
 			} else if (target.className.includes('zoom-item')) {
 				// select zoom
 				const index = target.dataset['index']
 				const item = zoomDatas[index]
-				setAttentionEyesInfo({
-					selectIndex: index,
-					left: item.x,
-					top: item.y,
-					scale: item.vscale,
-				})
+				showDrawer()
+				requestAnimationFrame(() => {
+					const context = updateCanvasRef.current.getContext('2d')
+					// const videoWidth = videoRef.current?.videoWidth
+					const videoHeight = videoRef.current?.videoHeight
+					const wScale = scaleInfoRef.current.updatescale
+					// scaleInfoRef.current.updatescale = wScale;
+					const clientHeight = wScale * videoHeight
+					context.clearRect(0, 0, 400, clientHeight)
+					context.scale(wScale, wScale);
+					updateCanvasRef.current.height = clientHeight
+					scaleUpdateDivRef.current.style.height = clientHeight + 'px'
+					context.drawImage(videoRef.current, 0, 0, 400, clientHeight)
+					setAttentionEyesInfo({
+						selectIndex: index,
+						left: item.x,
+						top: item.y,
+						scale: item.scale,
+					});
+				});
 			}
 		}
+
 		const onMouseUp = () => {
 			mouseEvent.current.isDrag = false
 		}
@@ -379,15 +531,33 @@ const VideoPlayer = () => {
 
 	// eslint-disable-next-line react-hooks/exhaustive-deps
 	const initMouseEvent = () => {
+		console.log('initMouseEvent-----', videoRef)
 		const width = timeLineRef.current?.clientWidth || 0
 		const duration = (videoRef.current?.duration) || 0
-		const scale =  width / duration
-		mouseEvent.current.mintimeline = ((scale * 1) / width * 100) 
-		mouseEvent.current.minWidth =  Math.round(mouseEvent.current.mintimeline *  minsecondes) 
+		console.log('duration-----', duration, width)
+		const scale = width / duration
+		mouseEvent.current.mintimeline = ((scale * 1) / width * 100)
+		mouseEvent.current.minWidth = Math.round(mouseEvent.current.mintimeline * minsecondes)
 		mouseEvent.current.duration = duration
-		if (zoomDatas.length) {
-			console.log('zoomDatas-----', zoomDatas, scale)
-		}
+		// if (zoomDatas.length) {
+		//     console.log('zoomDatas-----', zoomDatas, scale)
+		// }
+		const hScale = videoRef.current.clientHeight / videoRef.current.videoHeight
+		scaleInfoRef.current.perviewScale = hScale;
+		videoRef.current.style.width = videoRef.current.videoWidth * hScale + 'px'
+		plyrCanvasRef.current.width = videoRef.current.videoWidth * hScale
+		plyrCanvasRef.current.height = videoRef.current.clientHeight
+		const videoWidth = videoRef.current?.videoWidth
+		const wScale = 400 / videoWidth
+		scaleInfoRef.current.updatescale = wScale;
+		setTimeout(() => {
+			drawVideoFrame();
+			const newZoomDatas = formatZoomDatas(recordEvents,
+				duration, scaleInfoRef.current.updatescale,	
+				scaleInfoRef.current.perviewScale, mouseEvent.current.minWidth);
+			console.log('newZoomDatas---', newZoomDatas)
+			setZoomDatas(() => [...(newZoomDatas as any)])
+		}, 1000);
 		setPlayInfo((per) => {
 			return {
 				...per,
@@ -403,14 +573,15 @@ const VideoPlayer = () => {
 	}
 	useEffect(() => {
 		const updateScrubber = () => {
+			console.log('updateScrubber-----', exporting)
 			requestAnimationFrame(() => {
+				if (exporting) return;
 				const time = videoRef.current.currentTime
 				const duration = mouseEvent.current.duration
 				let position = (time / duration) * 100
 				if (time === 0) {
 					position = 0
 				}
-				// console.log('position---', time, position);
 				setProgressInfo(per => {
 					return {
 						...per,
@@ -423,6 +594,14 @@ const VideoPlayer = () => {
 						current: time,
 					}
 				})
+				if (!playInfo.playing) {
+					if (timer) clearTimeout(timer);
+					timer = setTimeout(() => {
+						drawVideoFrame()
+						clearTimeout(timer)
+						timer = null
+					}, 500) as any;
+				}
 			})
 		}
 		const handelEnded = () => {
@@ -432,6 +611,10 @@ const VideoPlayer = () => {
 					playing: false,
 				}
 			})
+			// 停止转换
+			if (recorder) {
+				recorder.stop();
+			}
 		}
 		/**
 		 * 初始化 时间轴
@@ -447,17 +630,16 @@ const VideoPlayer = () => {
 			videoRef.current.addEventListener('ended', handelEnded)
 			videoRef.current.addEventListener('loadedmetadata', handleLoadedmetadata)
 			videoRef.current.addEventListener('loadstart', handleLoadstart)
-
 		}
 		return () => {
 			if (videoRef!.current) {
-				videoRef!.current.removeEventListener('timeupdate', handelEnded)
+				videoRef!.current.removeEventListener('timeupdate', updateScrubber)
 				videoRef!.current.removeEventListener('ended', handelEnded)
 				videoRef!.current.addEventListener('loadedmetadata', handleLoadedmetadata)
 				videoRef!.current.removeEventListener('loadstart', handleLoadstart)
 			}
 		}
-	}, [initMouseEvent])
+	}, [initMouseEvent, zoomDatas, exporting])
 
 	const showZoomMask = (status: boolean) => {
 		if (zoomMaskRef.current) {
@@ -471,23 +653,24 @@ const VideoPlayer = () => {
 		return true
 	}
 
-	const onFileChange = async (event) => {
-		setLoadInfo({ isLoading: true, message: 'Load Video' })
-		const file = event.target.files[0]
-		const videoUrl = URL.createObjectURL(file); // 创建URL
-		videoRef.current.src = videoUrl
-		setPlayInfo({
-			playing: false,
-			status: true,
-			update: false,
-		} as any);
-		setZoomDatas([])
-		event.target.value = ''
-		setLoadInfo({ isLoading: false, message: 'Load Video' })
-	}
+	// 更新视图
+	useEffect(() => {
+		console.log('更新视图 zoomDatas-----', zoomDatas)
+		drawVideoFrame();
+	}, [zoomDatas])
 
+	/**
+	 * 点击播放/暂停
+	 */
 	const onVideoPlay = () => {
-		!playInfo.playing ? videoRef.current?.play() : videoRef.current?.pause()
+		if (!playInfo.playing) {
+			renderFrameInfo.current.event = null
+			renderFrameInfo.current.index = 0
+			videoRef.current?.play()
+			drawVideoFrame(1)
+		} else {
+			videoRef.current?.pause()
+		}
 		setPlayInfo(per => {
 			return {
 				...per,
@@ -496,6 +679,10 @@ const VideoPlayer = () => {
 		})
 	}
 
+	/**
+	 * 
+	 * 删除锚点
+	 */
 	const onDeleteZoomItem = () => {
 		if (attentionEyesInfo.selectIndex < 0) return
 		const newDatas = [...zoomDatas]
@@ -507,76 +694,238 @@ const VideoPlayer = () => {
 				selectIndex: -1
 			}
 		}))
+		onClose();
+
 	}
 
 	const onSaveFrame = async () => {
-		setLoadInfo({ isLoading: true, message: 'Processing' })
-	
-		setLoadInfo({ isLoading: false, message: 'Processing' })
+		exprotCanvasRef.current.width = videoRef.current.videoWidth
+		exprotCanvasRef.current.height = videoRef.current.videoHeight
+		videoRef.current.currentTime = 0
+		scaleInfoRef.current.type = 1
+		setExporting(true);
+		// document.body.style.pointerEvents 
+		requestAnimationFrame(() => {
+			videoRef.current.play()
+			drawVideoFrame(1);
+			let stream = exprotCanvasRef.current.captureStream(60);
+			const mimeType = 'video/mp4; codecs=vp9';
+			// const mimeType = 'video/mp4;codecs=h264';
+			recorder = new MediaRecorder(stream, { mimeType: mimeType });
+			const data = []
+			recorder.ondataavailable = function (event) {
+				if (event?.data.size) data.push(event.data);
+			}
+			recorder.onstop = async () => {
+				// let url = URL.createObjectURL(new Blob(data, { type:mimeType  }));
+				//   console.log('recorder.onstop ----', url)
+				const blob = new Blob(data, { type: 'video/mp4' });
+				const mp4Blob = await convertWebmToMp4(ffmpegRef.current, blob)
+				// console.log('blob---', blob)
+				const url = URL.createObjectURL(mp4Blob);
+				   // 创建一个临时的 <a> 元素
+				//    const a = document.createElement('a');
+				//    a.href = url;
+				//    a.download = "avcraft.mp4";
+			   
+				//    // 模拟点击以触发下载
+				//    document.body.appendChild(a);
+				//    a.click();
+			   
+				//    // 清理
+				//    document.body.removeChild(a);
+				//    URL.revokeObjectURL(url); // 释放 URL 对象
+
+				   window.open(url, '_blank')
+
+				// const base64 = await toBase64(blob)
+				// window.parent.postMessage({
+				// 	action: 'download',
+				// 	recordbase: base64,
+				// }, '*')
+				setExporting(false)
+				timeLineRef.current.style.pointerEvents = 'auto'
+				document.body.style.pointerEvents = 'auto'
+			}
+			recorder.start()
+			timeLineRef.current.style.pointerEvents = 'none'
+			document.body.style.pointerEvents = 'none'
+			// setTimeout(() => {
+			// 	typeof props.onExport === 'function' &&  props.onExport();
+			// }, 500)
+		})
 	}
 
+	/**
+	 * 缩放程度
+	 * @param
+	 */
 	const onScaleChange = (e) => {
 		setAttentionEyesInfo((per) => {
 			return {
 				...per,
-				scale: e.target.value / 100
+				scale: e.target.value
 			}
 		})
+		if (attentionEyesInfo.selectIndex !== -1) {
+			const newZoomDatas = [...zoomDatas]
+			newZoomDatas[attentionEyesInfo.selectIndex] = {
+				...newZoomDatas[attentionEyesInfo.selectIndex],
+				scale: e.target.value,
+			}
+			setZoomDatas(() => [...newZoomDatas])
+		}
+	}
+
+	/**
+	 * 绘制视频
+	 */
+	const drawVideoFrame = (type = 0) => {
+		if (type === 0 || (!videoRef.current.paused && !videoRef.current.ended)) {
+			const { type: optType } = scaleInfoRef.current;
+			const context = optType === 0
+				? plyrCanvasRef.current.getContext('2d')
+				: exprotCanvasRef.current.getContext('2d')
+			const cw = optType === 0 ? plyrCanvasRef.current.width : videoRef.current.videoWidth
+			const ch = optType === 0 ? plyrCanvasRef.current.height : videoRef.current.videoHeight
+			context.scale(1, 1);
+			context.clearRect(0, 0, cw, ch);
+			context.save()
+			// context.scale(newScaleW, newScaleH);
+			// 当前缩放帧数据
+			let { index, event, lastScale, wscale, hscale, sx, sy } = renderFrameInfo.current
+
+			if (zoomDatas.length > 0) {
+				const effectFrames = getEffectFramesByZooms([...zoomDatas], videoRef.current.duration,
+					scaleInfoRef.current.updatescale,
+					optType === 0 ? scaleInfoRef.current.perviewScale : scaleInfoRef.current.exportScale)
+				// 检索帧
+				if (!event || type === 0) {
+					if (type === 0) {
+						index = 0;
+					}
+					renderFrameInfo.current.tIndex = 0
+					renderFrameInfo.current.tReset = true
+					for (let i = index; i < effectFrames.length; i++) {
+						const { start, t } = effectFrames[i]
+						if (start <= videoRef.current.currentTime && videoRef.current.currentTime <= start + t) {
+							event = effectFrames[i]
+							renderFrameInfo.current.event = event
+							renderFrameInfo.current.index = i + 1
+							// renderFrameInfo.current.tx = (event as any).x
+							// renderFrameInfo.current.ty = (event as any).y
+							// console.log('检索帧 event----', event)
+							break
+						}
+					}
+				}
+				// 处理帧
+				if (event) {
+					if (type === 0 && effectFrames.length && effectFrames[index - 1]) {
+						event = effectFrames[index - 1]
+						renderFrameInfo.current.event = event
+					}
+					let { x, y, start, t, children, scale = SCALE_DEFAULT } = event as any
+					// x = x * scaleInfoRef.current.perviewScale
+					// y = y * scaleInfoRef.current.perviewScale
+					// 记录移动x\y;解决缩放帧还原空白
+					// if (renderFrameInfo.current.tReset === true) {
+					//     renderFrameInfo.current.sx = x
+					//     renderFrameInfo.current.sy = y
+					// }
+					let newScale = 1
+					// 开始帧
+					if (videoRef.current.currentTime - start <= MIN_FRAME_MOD_TIME
+						&& videoRef.current.currentTime - start > 0
+					) {
+						newScale = newScale + (videoRef.current.currentTime - start) / (MIN_FRAME_MOD_TIME) * (scale - 1)
+						// newScale = newScale > scale ? scale : newScale;
+						// console.log('开始帧 newScale----', newScale, scale);
+						lastScale = newScale
+						renderFrameInfo.current.lastScale = lastScale
+					}
+					// 结束帧
+					if (videoRef.current.currentTime >= start + t - MIN_FRAME_MOD_TIME && videoRef.current.currentTime < start + t) {
+						// console.log('结束帧', renderFrameInfo.current)
+						newScale = lastScale - ((lastScale - 1) - (start + t - videoRef.current.currentTime) / MIN_FRAME_MOD_TIME * (lastScale - 1))
+						console.log('结束帧 newScale----', newScale);
+						newScale = newScale < 1 ? 1 : newScale;
+					}
+					// 持续帧
+					if (videoRef.current.currentTime - start > MIN_FRAME_MOD_TIME && videoRef.current.currentTime <= start + t - MIN_FRAME_MOD_TIME) {
+						newScale = lastScale === scale ? lastScale : scale
+					}
+
+					// x = renderFrameInfo.current.sx
+					// y = renderFrameInfo.current.sy
+					// console.log('newScale----', x, y);
+					context.translate(x, y);
+					context.scale(newScale, newScale);
+					context.translate(-x, -y);
+
+					if (videoRef.current.currentTime >= start + t) {
+						event = null
+						renderFrameInfo.current.event = event
+						renderFrameInfo.current.index = 0
+					}
+				}
+			}
+			context.drawImage(videoRef.current, 0, 0, cw, ch)
+			context.restore()
+			if (type === 1) {
+				requestAnimationFrame(drawVideoFrame.bind(this, type))
+			}
+		}
 	}
 
 	const onDownLoad = async () => {
 		if (!downUrl) return;
 	}
 	return <>
-		<GlobalLoading {...loadInfo} ></GlobalLoading>
-		<div className="videoPlayer">
+	<GlobalLoading {...loadInfo} ></GlobalLoading>
+		<div className="videoPlayer" style={{ minWidth: playerRect.width + 'px', maxWidth: playerRect.width + 'px', }}>
 			<div className="playerWrap">
 				<div className="plyr--video" ref={plyrVideoRef}>
 					<div className="desc"> Upload Video</div>
 					<video className="ply-video opacity-0" src="" ref={videoRef}></video>
 					<canvas className="ply-video-canvas" ref={plyrCanvasRef} ></canvas>
-					<div className="dropdown" style={{ left: `${attentionEyesInfo.left}px`, top: `${attentionEyesInfo.top}px`, display: attentionEyesInfo.selectIndex > -1 ? 'block' : 'none' }}>
-						<div className="attention-eyes" > </div>
-						<div className="dropdown-opreation">
-							<input type="range" onChange={onScaleChange} value={attentionEyesInfo.scale * 100} min={1} max={10} className="zoom-setting"></input>
-						</div>
-					</div>
+					{/* <div className="dropdown" style={{ left: `${attentionEyesInfo.left}px`, top: `${attentionEyesInfo.top}px`, display: attentionEyesInfo.selectIndex > -1 ? 'block' : 'none' }}>
+                        <div className="attention-eyes" > </div>
+                        <div className="dropdown-opreation">
+                            <input type="range" onChange={onScaleChange} value={attentionEyesInfo.scale * 100} min={1} max={10} className="zoom-setting"></input>
+                        </div>
+                    </div> */}
 
 				</div>
 			</div>
 			<div className="control">
 				<div className="operation">
 					<div style={{ display: 'flex', }}>
-						<button className="button default">
+					<button className="button default">
 							<label htmlFor="upload">上传视频</label>
 							<input type="file" id="upload" accept="video/*" onChange={onFileChange} style={{ display: 'none' }} ></input>
 						</button>
 						<button className="button default" onClick={onVideoPlay} disabled={!playInfo.status}>
-							{playInfo.playing ? '暂停' : '播放'}
+							{playInfo.playing ? '暂  停' : '播  放'}
 						</button>
-					
+
 					</div>
-					<div style={{color: '#666666',}}>
-					{ formatSecondsToHMS( playInfo.current || 0)} / {formatSecondsToHMS( playInfo.duration)}
+					<div style={{ color: '#666666', }}>
+						{formatSecondsToHMS(playInfo.current || 0)} / {formatSecondsToHMS(playInfo.duration)}
 					</div>
 					<div style={{ display: 'flex', }}>
-						{
-							attentionEyesInfo.selectIndex !== -1
-								? <button className="button default" onClick={onDeleteZoomItem} >删除</button>
-								: null
-						}
-						<button className="button default" onClick={onSaveFrame} disabled={!playInfo.status || !playInfo.update}>
-							保存设置
+						<button className="button default" onClick={onSaveFrame}>
+							{exporting ? <> <Spin />正在导出</> : '导出'}
 						</button>
 						{
-						downUrl	? <>
+							downUrl ? <>
 								<button className="button default" onClick={onDownLoad}>
-								预览视频
+									预览视频
 								</button>
 								{/* <button className="button default" onClick={() => window.location.href = downUrl}>
 									预览结果
 								</button> */}
-						</> 
+							</>
 								: null
 						}
 
@@ -604,6 +953,29 @@ const VideoPlayer = () => {
 				</div>
 			</div>
 		</div>
+		<Drawer title="Scale" keyboard={false} width={450} maskClosable={false} onClose={onClose} open={open} zIndex={999999}>
+			<p>
+				Position：
+				<div className="scale-update" ref={scaleUpdateDivRef}>
+					<canvas width={400} ref={updateCanvasRef}></canvas>
+					<div className="dropdown" style={{ left: `${attentionEyesInfo.left}px`, top: `${attentionEyesInfo.top}px`, display: attentionEyesInfo.selectIndex > -1 ? 'block' : 'none' }}>
+						<div className="attention-eyes" > </div>
+					</div>
+				</div>
+			</p>
+			<p style={{ marginTop: '24px' }}>
+				Zoom Scale:
+				<input type="range" onChange={onScaleChange} step={0.1} value={attentionEyesInfo.scale} min={1} max={2} className="zoom-setting"></input>
+			</p>
+			<p>
+				{
+					attentionEyesInfo.selectIndex !== -1
+						? <button className="button default" onClick={onDeleteZoomItem} >删&nbsp;&nbsp;除</button>
+						: null
+				}
+			</p>
+		</Drawer>
+		<canvas className="export-canvas" ref={exprotCanvasRef}></canvas>
 	</>
 }
 

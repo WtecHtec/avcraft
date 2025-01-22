@@ -1,13 +1,61 @@
-<!doctype html>
-<html lang="en">
+<!DOCTYPE html>
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AttentionVideoCraft</title>
+    
+    <!-- 基础 SEO 标签 -->
+    <title>AttentionVideoCraft - 专业的在线视频编辑工具</title>
+    <meta name="description" content="AttentionVideoCraft 是一款强大的在线视频编辑工具，支持视频剪辑、特效添加、格式转换等功能。使用简单，效果专业。" />
+    <meta name="keywords" content="视频编辑,在线剪辑,视频特效,视频转换,AttentionVideoCraft" />
+    <meta name="author" content="Your Company Name" />
+    
+    <!-- Open Graph 标签 (用于社交媒体分享) -->
+    <meta property="og:title" content="AttentionVideoCraft - 专业的在线视频编辑工具" />
+    <meta property="og:description" content="使用 AttentionVideoCraft 轻松编辑和转换您的视频，无需下载软件，即可获得专业效果。" />
+    <meta property="og:image" content="/og-image.png" />
+    <meta property="og:url" content="https://your-domain.com" />
+    <meta property="og:type" content="website" />
+    
+    <!-- Twitter Card 标签 -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="AttentionVideoCraft - 专业的在线视频编辑工具" />
+    <meta name="twitter:description" content="使用 AttentionVideoCraft 轻松编辑和转换您的视频，无需下载软件，即可获得专业效果。" />
+    <meta name="twitter:image" content="/twitter-card.png" />
+    
+    <!-- 其他重要标签 -->
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://your-domain.com" />
+    <meta name="theme-color" content="#ffffff" />
+    
+    <!-- PWA 相关标签 -->
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    
+    <!-- CSP 配置 -->
+    <meta http-equiv="Cross-Origin-Opener-Policy" content="same-origin" />
+    <meta http-equiv="Cross-Origin-Embedder-Policy" content="require-corp" />
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    
+    <!-- 添加结构化数据 -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "AttentionVideoCraft",
+        "description": "专业的在线视频编辑工具，支持视频剪辑、特效添加、格式转换等功能。",
+        "applicationCategory": "MultimediaApplication",
+        "operatingSystem": "Web",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "CNY"
+        }
+      }
+    </script>
   </body>
 </html>

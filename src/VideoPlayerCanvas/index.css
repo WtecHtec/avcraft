@@ -17,15 +17,15 @@
 
 .plyr--video {
 	position: relative;
-	background-color: #000000;
+	/* background-color: #000000; */
 	overflow: hidden;
 	box-sizing: border-box;
-	max-width: 900px;
-	width: 90%;
+	/* max-width: 900px;
+	width: 90%; */
 	display: flex;
   align-items: center;
   justify-content: center;
-	border-radius: 16px;
+	/* border-radius: 16px; */
 }
 
 .plyr--video video {
@@ -245,6 +245,7 @@
 	position: absolute;
 	display: flex;
 	flex-direction: column;
+	z-index: 999999;
 }
 
 .dropdown-opreation {
@@ -261,7 +262,7 @@
 }
 
 .desc {
-	color: #fff;
+	color: #333333;
 	position: absolute;
 	left: 50%;
 	top: 50%;
@@ -275,4 +276,17 @@
 
 .opacity-0 {
 	opacity: 0;
+}
+
+.scale-update {
+	width: 400px;
+	position: relative;
+	text-align: center;
+	cursor: pointer;
+}
+
+.export-canvas {
+	position: absolute;
+	z-index: -999999;
+	top: -200%;
 }
